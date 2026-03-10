@@ -685,7 +685,7 @@ function progCard(p, isPersonal){
 // ══════════════════════════════════════════════════════════════════
 // GOOGLE SHEETS SYNC
 // ══════════════════════════════════════════════════════════════════
-const GS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbydbLludkxbORW_wKKVNtY9htVV9JBrKPWwOb2ZgnO_-M7yqMFO6J7EjD-1WbzyB07B/exec";
+const GS_URL_DEFAULT = "https://sheetdb.io/api/v1/mlnit60z5zcah";
 let GS_URL = localStorage.getItem("bl_gs_url") || GS_URL_DEFAULT;
 
 function openSyncSettings(){
@@ -714,69 +714,78 @@ function saveSyncUrl(){
   });
 }
 
-function syncNow(){
-  if(!GS_URL) return Promise.resolve();
-  const badge=document.getElementById("sync-badge");
-  if(badge){badge.textContent="⏳";badge.style.color="#C8972A";}
+async function syncNow(){
+  if(!GS_URL) return;
+  const badge = document.getElementById("sync-badge");
+  if(badge){badge.textContent="⏳"; badge.style.color="#C8972A";}
 
-  const payload = JSON.stringify({
-    action:"sync",
-    athletes:JSON.stringify(ATHLETES),
-    sessions:JSON.stringify(SESSIONS),
-    programs:JSON.stringify(PROGRAMS.filter(p=>p.ownerId))
-  });
+  try {
+    // ── 1. PUSH : écrase les 3 onglets avec les données locales ────
+    await pushSheet("athletes",  ATHLETES);
+    await pushSheet("sessions",  SESSIONS);
+    await pushSheet("programs_custom", PROGRAMS.filter(p=>p.ownerId));
 
-  // Essai 1: fetch direct POST (marche depuis GitHub Pages)
-  return fetch(GS_URL, {
-    method:"POST",
-    headers:{"Content-Type":"text/plain"},
-    body: payload,
-    redirect: "follow"
-  })
-  .then(r=>{ 
-    if(!r.ok) throw new Error("HTTP "+r.status); 
-    return r.text(); 
-  })
-  .then(text=>{
-    // Apps Script parfois retourne du HTML autour du JSON
-    const match = text.match(/\{[\s\S]*\}/);
-    if(!match) throw new Error("Réponse invalide du serveur");
-    const data = JSON.parse(match[0]);
-    if(!data.ok) throw new Error(data.error||"Erreur serveur");
-    mergeRemoteData(data);
-    const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
-    localStorage.setItem("bl_last_sync", now);
-    const b=document.getElementById("sync-badge");
-    if(b){b.textContent="✓ "+now;b.style.color="#3A8C5C";}
-    return data;
-  })
-  .catch(err=>{
-    console.error("Sync error:", err);
-    const b=document.getElementById("sync-badge");
-    if(b){b.textContent="⚠";b.style.color="#E82B2B";}
-    throw err;
-  });
-}
+    // ── 2. PULL : récupère les données distantes ───────────────────
+    const [remoteAthletes, remoteSessions, remoteProgs] = await Promise.all([
+      pullSheet("athletes"),
+      pullSheet("sessions"),
+      pullSheet("programs_custom")
+    ]);
 
-function mergeRemoteData(data){
-  let changed = false;
-  if(data.athletes){ try{
-    JSON.parse(data.athletes).forEach(ra=>{
+    // ── 3. MERGE : ajoute ce qui manque en local ───────────────────
+    let changed = false;
+    remoteAthletes.forEach(ra=>{
       if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
     });
-  }catch(e){} }
-  if(data.sessions){ try{
-    JSON.parse(data.sessions).forEach(rs=>{
+    remoteSessions.forEach(rs=>{
       if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
     });
-  }catch(e){} }
-  if(data.programs){ try{
-    JSON.parse(data.programs).forEach(rp=>{
+    remoteProgs.forEach(rp=>{
       if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
     });
-  }catch(e){} }
-  if(changed){ save(); renderProgs(); }
+    if(changed){ save(); renderProgs(); }
+
+    const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    localStorage.setItem("bl_last_sync", now);
+    if(badge){badge.textContent="✓ "+now; badge.style.color="#3A8C5C";}
+
+  } catch(err) {
+    console.error("Sync error:", err);
+    if(badge){badge.textContent="⚠ "+err.message; badge.style.color="#E82B2B";}
+    throw err;
+  }
 }
+
+async function pushSheet(sheetName, data){
+  // Supprime toutes les lignes existantes
+  await fetch(GS_URL+"/all?sheet="+sheetName, {method:"DELETE"}).catch(()=>{});
+  if(!data || data.length === 0) return;
+  // Insère les nouvelles données
+  await fetch(GS_URL+"?sheet="+sheetName, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({data: data.map(flattenObj)})
+  });
+}
+
+async function pullSheet(sheetName){
+  try {
+    const r = await fetch(GS_URL+"?sheet="+sheetName);
+    if(!r.ok) return [];
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch(e){ return []; }
+}
+
+function flattenObj(obj){
+  const flat = {};
+  Object.keys(obj).forEach(k=>{
+    const v = obj[k];
+    flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : (v ?? "");
+  });
+  return flat;
+}
+
 
 
 function deleteProg(id){
