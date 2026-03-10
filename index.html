@@ -719,74 +719,65 @@ function syncNow(){
   const badge=document.getElementById("sync-badge");
   if(badge){badge.textContent="⏳";badge.style.color="#C8972A";}
 
-  const payload = {
-    action:"sync",
-    athletes:JSON.stringify(ATHLETES),
-    sessions:JSON.stringify(SESSIONS),
-    programs:JSON.stringify(PROGRAMS.filter(p=>p.ownerId))
-  };
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(()=>{
+      window.removeEventListener("message", onMsg);
+      const b=document.getElementById("sync-badge");
+      if(b){b.textContent="⚠";b.style.color="#E82B2B";}
+      reject(new Error("Timeout — le script Apps Script ne répond pas"));
+    }, 20000);
 
-  // Utilise un proxy CORS public pour contourner la restriction
-  const PROXY = "https://corsproxy.io/?";
-  const targetUrl = GS_URL;
+    function onMsg(event) {
+      if(!event.data || !event.data.ok === undefined) return;
+      clearTimeout(timeout);
+      window.removeEventListener("message", onMsg);
+      const data = event.data;
 
-  return fetch(PROXY + encodeURIComponent(targetUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  })
-  .then(r => {
-    if(!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  })
-  .then(data => {
-    if(!data.ok && data.error) throw new Error(data.error);
+      if(!data.ok){ reject(new Error(data.error||"Erreur inconnue")); return; }
 
-    let changed = false;
-    if(data.athletes){ try{
-      JSON.parse(data.athletes).forEach(ra=>{
-        if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
-      });
-    }catch(e){} }
-    if(data.sessions){ try{
-      JSON.parse(data.sessions).forEach(rs=>{
-        if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
-      });
-    }catch(e){} }
-    if(data.programs){ try{
-      JSON.parse(data.programs).forEach(rp=>{
-        if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
-      });
-    }catch(e){} }
-    if(changed){ save(); renderProgs(); }
+      let changed = false;
+      if(data.athletes){ try{
+        JSON.parse(data.athletes).forEach(ra=>{
+          if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
+        });
+      }catch(e){} }
+      if(data.sessions){ try{
+        JSON.parse(data.sessions).forEach(rs=>{
+          if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
+        });
+      }catch(e){} }
+      if(data.programs){ try{
+        JSON.parse(data.programs).forEach(rp=>{
+          if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
+        });
+      }catch(e){} }
+      if(changed){ save(); renderProgs(); }
 
-    const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
-    localStorage.setItem("bl_last_sync", now);
-    const b=document.getElementById("sync-badge");
-    if(b){b.textContent="✓ "+now;b.style.color="#3A8C5C";}
-    return data;
-  })
-  .catch(err => {
-    // Fallback: essai direct sans proxy (marche si hébergé en ligne)
-    return fetch(targetUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    })
-    .then(r => r.json())
-    .then(data => {
-      if(!data.ok) throw new Error(data.error||"Erreur");
       const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
       localStorage.setItem("bl_last_sync", now);
       const b=document.getElementById("sync-badge");
       if(b){b.textContent="✓ "+now;b.style.color="#3A8C5C";}
-      return data;
-    })
-    .catch(() => {
-      const b=document.getElementById("sync-badge");
-      if(b){b.textContent="⚠";b.style.color="#E82B2B";}
-      throw new Error("Impossible de joindre le serveur. Héberge le fichier en ligne pour activer la synchro (GitHub Pages, Netlify...)");
+      resolve(data);
+    }
+
+    window.addEventListener("message", onMsg);
+
+    // Construire URL GET avec tous les paramètres
+    const params = new URLSearchParams({
+      action: "sync",
+      athletes: JSON.stringify(ATHLETES),
+      sessions: JSON.stringify(SESSIONS),
+      programs: JSON.stringify(PROGRAMS.filter(p=>p.ownerId))
     });
+
+    // Iframe cachée — Apps Script renvoie postMessage au parent
+    let iframe = document.getElementById("sync-iframe");
+    if(iframe) iframe.remove();
+    iframe = document.createElement("iframe");
+    iframe.id = "sync-iframe";
+    iframe.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;";
+    iframe.src = GS_URL + "?" + params.toString();
+    document.body.appendChild(iframe);
   });
 }
 
