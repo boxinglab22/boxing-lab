@@ -558,6 +558,36 @@ function load(){
   }catch(e){ PROGRAMS=clone(DEFAULT_PROGRAMS); ATHLETES=[]; SESSIONS=[]; }
 }
 
+// Charge depuis SheetDB et fusionne avec local
+async function loadFromCloud(){
+  if(!GS_URL) return false;
+  try {
+    const [remoteAthletes, remoteSessions, remoteProgs] = await Promise.all([
+      pullSheet("athletes"),
+      pullSheet("sessions"),
+      pullSheet("programs_custom")
+    ]);
+    let changed = false;
+    // Athletes : priorité au cloud (source de vérité)
+    remoteAthletes.forEach(ra=>{
+      if(!ra.id) return;
+      const idx = ATHLETES.findIndex(a=>a.id===ra.id);
+      if(idx>=0){ ATHLETES[idx]={...ATHLETES[idx],...ra}; changed=true; }
+      else { ATHLETES.push(ra); changed=true; }
+    });
+    // Sessions : merge additive
+    remoteSessions.forEach(rs=>{
+      if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){ SESSIONS.push(rs); changed=true; }
+    });
+    // Custom programs : merge additive
+    remoteProgs.forEach(rp=>{
+      if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){ PROGRAMS.push(rp); changed=true; }
+    });
+    if(changed) save();
+    return true;
+  } catch(e){ console.warn("Cloud load failed:", e); return false; }
+}
+
 // ══════════════════════════════════════════════════════════════════
 // NAV
 // ══════════════════════════════════════════════════════════════════
@@ -565,17 +595,22 @@ function showScreen(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.add("hidden"));
   document.getElementById(id).classList.remove("hidden");
 }
-function enterApp(){
+async function enterApp(){
   document.getElementById("splash").classList.add("hidden");
   showScreen("s-home");
   switchTab("deb");
+  const badge=document.getElementById("sync-badge");
   if(GS_URL){
-    const badge=document.getElementById("sync-badge");
     if(badge){badge.textContent="⏳";badge.style.color="#C8972A";}
-    syncNow().catch(e=>{
-      const b=document.getElementById("sync-badge");
-      if(b){b.textContent="⚠";b.style.color="#E82B2B";b.title=e.message;}
-    });
+    try {
+      // D'abord charger les données cloud
+      await loadFromCloud();
+      // Puis sync complète
+      await syncNow();
+      renderProgs(); renderAthletes();
+    } catch(e){
+      if(badge){badge.textContent="⚠";badge.style.color="#E82B2B";badge.title=e.message;}
+    }
   }
 }
 
@@ -1094,6 +1129,8 @@ function finishSession(noSave){
       blocksDetail:JSON.stringify(blocksDetail)
     });
     save();
+    // Sync sessions immediately
+    if(GS_URL) pushSheet("sessions", SESSIONS).catch(()=>{});
   }
   document.getElementById("done-overlay").classList.remove("show");
   running=false; clearInterval(timerRef);
@@ -1171,6 +1208,8 @@ function saveAthlete(){
   else ATHLETES.push({id:"a_"+Date.now(),createdAt:new Date().toISOString(),...data});
   save(); closeAthleteModal();
   renderAthletes(); renderPickAthList();
+  // Sync athletes immediately
+  if(GS_URL) pushSheet("athletes", ATHLETES).catch(()=>{});
 }
 
 // ── PROFILE ───────────────────────────────────────────────────────
