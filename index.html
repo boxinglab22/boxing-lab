@@ -758,14 +758,20 @@ async function syncNow(){
 
 async function pushSheet(sheetName, data){
   // Supprime toutes les lignes existantes
-  await fetch(GS_URL+"/all?sheet="+sheetName, {method:"DELETE"}).catch(()=>{});
+  try { await fetch(GS_URL+"/all?sheet="+sheetName, {method:"DELETE"}); } catch(e){}
   if(!data || data.length === 0) return;
-  // Insère les nouvelles données
-  await fetch(GS_URL+"?sheet="+sheetName, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({data: data.map(flattenObj)})
-  });
+  
+  // Envoie par chunks de 10 pour éviter les timeouts
+  const flat = data.map(flattenObj);
+  const chunkSize = 10;
+  for(let i=0; i<flat.length; i+=chunkSize){
+    const chunk = flat.slice(i, i+chunkSize);
+    await fetch(GS_URL+"?sheet="+sheetName, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({data: chunk})
+    });
+  }
 }
 
 async function pullSheet(sheetName){
@@ -781,7 +787,15 @@ function flattenObj(obj){
   const flat = {};
   Object.keys(obj).forEach(k=>{
     const v = obj[k];
-    flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : (v ?? "");
+    if(k === 'blocksDetail'){
+      // Résumé compact des blocs pour le Sheet
+      try {
+        const blocks = JSON.parse(v);
+        flat[k] = blocks.map(b => b.num+":"+b.label+(b.completed?"✓":"✗")+"("+b.dur+"min)").join(" | ");
+      } catch(e){ flat[k] = v||""; }
+    } else {
+      flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : (v ?? "");
+    }
   });
   return flat;
 }
