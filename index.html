@@ -792,20 +792,37 @@ async function syncNow(){
 }
 
 async function pushSheet(sheetName, data){
-  // Supprime toutes les lignes existantes
-  try { await fetch(GS_URL+"/all?sheet="+sheetName, {method:"DELETE"}); } catch(e){}
   if(!data || data.length === 0) return;
-  
-  // Envoie par chunks de 10 pour éviter les timeouts
   const flat = data.map(flattenObj);
-  const chunkSize = 10;
-  for(let i=0; i<flat.length; i+=chunkSize){
-    const chunk = flat.slice(i, i+chunkSize);
-    await fetch(GS_URL+"?sheet="+sheetName, {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({data: chunk})
-    });
+  // Pour chaque item : tente un PATCH (update) sinon POST (create)
+  for(const item of flat){
+    if(!item.id) continue;
+    try {
+      // Essaie de mettre à jour si existe déjà
+      const upd = await fetch(GS_URL+"/id/"+item.id+"?sheet="+sheetName, {
+        method:"PATCH",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({data: item})
+      });
+      const updData = await upd.json();
+      // Si pas trouvé (updated:0), crée
+      if(!updData || updData.updated === 0 || updData.error){
+        await fetch(GS_URL+"?sheet="+sheetName, {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({data: [item]})
+        });
+      }
+    } catch(e){
+      // Fallback: juste POST
+      try {
+        await fetch(GS_URL+"?sheet="+sheetName, {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({data: [item]})
+        });
+      } catch(e2){}
+    }
   }
 }
 
