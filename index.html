@@ -685,7 +685,7 @@ function progCard(p, isPersonal){
 // ══════════════════════════════════════════════════════════════════
 // GOOGLE SHEETS SYNC
 // ══════════════════════════════════════════════════════════════════
-const GS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbyzKHUFYQc96cskHuAUz32sQezHQdEZYn5wKok9T3bZqALrPQh41LG8NzGnV_gj7xWo/exec";
+const GS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbydbLludkxbORW_wKKVNtY9htVV9JBrKPWwOb2ZgnO_-M7yqMFO6J7EjD-1WbzyB07B/exec";
 let GS_URL = localStorage.getItem("bl_gs_url") || GS_URL_DEFAULT;
 
 function openSyncSettings(){
@@ -719,66 +719,63 @@ function syncNow(){
   const badge=document.getElementById("sync-badge");
   if(badge){badge.textContent="⏳";badge.style.color="#C8972A";}
 
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(()=>{
-      window.removeEventListener("message", onMsg);
-      const b=document.getElementById("sync-badge");
-      if(b){b.textContent="⚠";b.style.color="#E82B2B";}
-      reject(new Error("Timeout — le script Apps Script ne répond pas"));
-    }, 20000);
-
-    function onMsg(event) {
-      if(!event.data || !event.data.ok === undefined) return;
-      clearTimeout(timeout);
-      window.removeEventListener("message", onMsg);
-      const data = event.data;
-
-      if(!data.ok){ reject(new Error(data.error||"Erreur inconnue")); return; }
-
-      let changed = false;
-      if(data.athletes){ try{
-        JSON.parse(data.athletes).forEach(ra=>{
-          if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
-        });
-      }catch(e){} }
-      if(data.sessions){ try{
-        JSON.parse(data.sessions).forEach(rs=>{
-          if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
-        });
-      }catch(e){} }
-      if(data.programs){ try{
-        JSON.parse(data.programs).forEach(rp=>{
-          if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
-        });
-      }catch(e){} }
-      if(changed){ save(); renderProgs(); }
-
-      const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
-      localStorage.setItem("bl_last_sync", now);
-      const b=document.getElementById("sync-badge");
-      if(b){b.textContent="✓ "+now;b.style.color="#3A8C5C";}
-      resolve(data);
-    }
-
-    window.addEventListener("message", onMsg);
-
-    // Construire URL GET avec tous les paramètres
-    const params = new URLSearchParams({
-      action: "sync",
-      athletes: JSON.stringify(ATHLETES),
-      sessions: JSON.stringify(SESSIONS),
-      programs: JSON.stringify(PROGRAMS.filter(p=>p.ownerId))
-    });
-
-    // Iframe cachée — Apps Script renvoie postMessage au parent
-    let iframe = document.getElementById("sync-iframe");
-    if(iframe) iframe.remove();
-    iframe = document.createElement("iframe");
-    iframe.id = "sync-iframe";
-    iframe.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;";
-    iframe.src = GS_URL + "?" + params.toString();
-    document.body.appendChild(iframe);
+  const payload = JSON.stringify({
+    action:"sync",
+    athletes:JSON.stringify(ATHLETES),
+    sessions:JSON.stringify(SESSIONS),
+    programs:JSON.stringify(PROGRAMS.filter(p=>p.ownerId))
   });
+
+  // Essai 1: fetch direct POST (marche depuis GitHub Pages)
+  return fetch(GS_URL, {
+    method:"POST",
+    headers:{"Content-Type":"text/plain"},
+    body: payload,
+    redirect: "follow"
+  })
+  .then(r=>{ 
+    if(!r.ok) throw new Error("HTTP "+r.status); 
+    return r.text(); 
+  })
+  .then(text=>{
+    // Apps Script parfois retourne du HTML autour du JSON
+    const match = text.match(/\{[\s\S]*\}/);
+    if(!match) throw new Error("Réponse invalide du serveur");
+    const data = JSON.parse(match[0]);
+    if(!data.ok) throw new Error(data.error||"Erreur serveur");
+    mergeRemoteData(data);
+    const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    localStorage.setItem("bl_last_sync", now);
+    const b=document.getElementById("sync-badge");
+    if(b){b.textContent="✓ "+now;b.style.color="#3A8C5C";}
+    return data;
+  })
+  .catch(err=>{
+    console.error("Sync error:", err);
+    const b=document.getElementById("sync-badge");
+    if(b){b.textContent="⚠";b.style.color="#E82B2B";}
+    throw err;
+  });
+}
+
+function mergeRemoteData(data){
+  let changed = false;
+  if(data.athletes){ try{
+    JSON.parse(data.athletes).forEach(ra=>{
+      if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
+    });
+  }catch(e){} }
+  if(data.sessions){ try{
+    JSON.parse(data.sessions).forEach(rs=>{
+      if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
+    });
+  }catch(e){} }
+  if(data.programs){ try{
+    JSON.parse(data.programs).forEach(rp=>{
+      if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
+    });
+  }catch(e){} }
+  if(changed){ save(); renderProgs(); }
 }
 
 
