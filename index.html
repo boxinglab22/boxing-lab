@@ -500,7 +500,7 @@ function load(){
 }
 
 // ══ CLOUD SYNC ═══════════════════════════════════════════════════
-const GS_URL = "https://script.google.com/macros/s/AKfycbyzj8QKXn4URANvCc4m2M8I4RI25t93bYii3PRJNi5Gs77E19iX8294QscL8vZkvGad/exec";
+const GS_URL = "https://script.google.com/macros/s/AKfycbzP1bEOjHt7XxkKZHq9CDV7QDHjwif8LZPiyL7SthnTEVSwWzCcK0sTA0bFdD92nQUp/exec";
 
 function flattenObj(obj){
   const flat={};
@@ -528,10 +528,14 @@ async function gsGet(sheet){
 
 async function gsPost(action,sheet,data){
   try{
-    // Encode en base64 pour éviter CORS preflight
-    const json=JSON.stringify({action,sheet,data});
-    const b64=btoa(unescape(encodeURIComponent(json)));
-    await fetch(GS_URL+"?payload="+encodeURIComponent(b64),{redirect:"follow"});
+    // Envoie chaque item un par un via GET params simples
+    for(const item of data){
+      const params=new URLSearchParams();
+      params.set("action",action);
+      params.set("sheet",sheet);
+      params.set("data",JSON.stringify(item));
+      await fetch(GS_URL+"?"+params.toString(),{redirect:"follow"});
+    }
   }catch(e){ console.warn("gsPost:",e.message); }
 }
 
