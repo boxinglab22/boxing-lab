@@ -567,6 +567,12 @@ async function syncNow(){
     let changed=false;
     rA.forEach(ra=>{
       if(!ra.id)return;
+      if(ra.deleted==="1"){
+        // Athlète supprimé dans le cloud - on le retire localement
+        const i=ATHLETES.findIndex(a=>a.id===ra.id);
+        if(i>=0){ATHLETES.splice(i,1);changed=true;}
+        return;
+      }
       const i=ATHLETES.findIndex(a=>a.id===ra.id);
       if(i>=0){ATHLETES[i]={...ATHLETES[i],...ra};changed=true;}
       else{ATHLETES.push(ra);changed=true;}
@@ -962,14 +968,27 @@ function renderAthletes(){
     </div>`;
     return;
   }
-  let html=`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px 6px;">
-    <div style="font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:#333;">${ATHLETES.length} athlète${ATHLETES.length>1?"s":""}</div>
-    <div style="display:flex;gap:7px;">
-      <button onclick="exportAll()" style="background:none;border:1px solid #222;border-radius:4px;padding:5px 10px;color:#555;cursor:pointer;font-size:10px;font-family:inherit;font-weight:700;letter-spacing:.06em;">⬇ Export</button>
-      <button onclick="openAthleteModal(null)" style="background:#fff;border:none;border-radius:4px;padding:5px 11px;color:#000;font-weight:900;font-size:11px;cursor:pointer;font-family:inherit;">+ Ajouter</button>
+  const searchVal=(document.getElementById("ath-search")||{value:""}).value.toLowerCase();
+  const filtered=ATHLETES.filter(a=>{
+    if(!searchVal)return true;
+    return (a.name||"").toLowerCase().includes(searchVal)||(a.lastname||"").toLowerCase().includes(searchVal)||(a.goal||"").toLowerCase().includes(searchVal);
+  });
+  let html=`<div style="padding:10px 14px 6px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;">
+      <div style="font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:#333;">${ATHLETES.length} athlète${ATHLETES.length>1?"s":""}</div>
+      <div style="display:flex;gap:7px;">
+        <button onclick="exportAll()" style="background:none;border:1px solid #222;border-radius:4px;padding:5px 10px;color:#555;cursor:pointer;font-size:10px;font-family:inherit;font-weight:700;letter-spacing:.06em;">⬇ Export</button>
+        <button onclick="openAthleteModal(null)" style="background:#fff;border:none;border-radius:4px;padding:5px 11px;color:#000;font-weight:900;font-size:11px;cursor:pointer;font-family:inherit;">+ Ajouter</button>
+      </div>
+    </div>
+    <div style="position:relative;">
+      <input id="ath-search" type="search" placeholder="🔍 Rechercher un athlète..." value="${searchVal}" oninput="renderAthletes()" style="width:100%;background:#0a0a0a;border:1px solid #1e1e1e;border-radius:var(--r);padding:9px 12px;color:#fff;font-size:13px;outline:none;font-family:inherit;">
     </div>
   </div>`;
-  ATHLETES.forEach(a=>{
+  if(filtered.length===0&&searchVal){
+    html+=`<div style="text-align:center;padding:30px 20px;color:#333;font-size:13px;">Aucun résultat pour "${searchVal}"</div>`;
+  }
+  filtered.forEach(a=>{
     const sessions=SESSIONS.filter(s=>s.athleteId===a.id);
     const lv=LV[a.level]||LV.deb,ac=avc(a.id);
     const last=sessions[sessions.length-1];
@@ -1022,9 +1041,10 @@ function deleteAthlete(){
   if(!editAthId)return;
   const a=ATHLETES.find(x=>x.id===editAthId);
   if(!confirm("Supprimer "+(a?a.name:"cet athlète")+" ?"))return;
+  // Envoie deleted=1 au sheet avant de supprimer localement
+  gsPost("upsert","athletes",[{...flattenObj(a), deleted:"1"}]).catch(()=>{});
   ATHLETES=ATHLETES.filter(x=>x.id!==editAthId);
   save();closeAthleteModal();renderAthletes();
-  gsPost("upsert","athletes",ATHLETES.map(flattenObj)).catch(()=>{});
 }
 
 function openProfile(id){currentAthId=id;renderProfile(id);showScreen("s-profile");}
