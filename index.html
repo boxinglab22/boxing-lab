@@ -769,6 +769,22 @@ async function gsPost(action, sheet, data){
   });
 }
 
+function flattenObj(obj){
+  const flat = {};
+  Object.keys(obj).forEach(k=>{
+    const v = obj[k];
+    if(k === 'blocksDetail'){
+      try {
+        const blocks = JSON.parse(v);
+        flat[k] = blocks.map(b => b.num+":"+b.label+(b.completed?"✓":"✗")+"("+b.dur+"min)").join(" | ");
+      } catch(e){ flat[k] = v||""; }
+    } else {
+      flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : (v ?? "");
+    }
+  });
+  return flat;
+}
+
 async function syncNow(){
   if(!GS_URL) return;
   const badge = document.getElementById("sync-badge");
