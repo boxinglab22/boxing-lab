@@ -565,10 +565,13 @@ async function syncNow(){
       gsGet("athletes"), gsGet("sessions"), gsGet("programs_custom")
     ]);
     let changed=false;
+    // Charge les IDs supprimés depuis localStorage
+    let deletedIds=[];
+    try{deletedIds=JSON.parse(localStorage.getItem("bl_deleted")||"[]");}catch(e){}
     rA.forEach(ra=>{
       if(!ra.id)return;
-      if(ra.deleted==="1"){
-        // Athlète supprimé dans le cloud - on le retire localement
+      // Ignore si supprimé dans le cloud OU supprimé localement
+      if(ra.deleted==="1"||deletedIds.includes(ra.id)){
         const i=ATHLETES.findIndex(a=>a.id===ra.id);
         if(i>=0){ATHLETES.splice(i,1);changed=true;}
         return;
@@ -1041,8 +1044,13 @@ function deleteAthlete(){
   if(!editAthId)return;
   const a=ATHLETES.find(x=>x.id===editAthId);
   if(!confirm("Supprimer "+(a?a.name:"cet athlète")+" ?"))return;
-  // Envoie deleted=1 au sheet avant de supprimer localement
-  gsPost("upsert","athletes",[{...flattenObj(a), deleted:"1"}]).catch(()=>{});
+  // Sauvegarde l'ID supprimé dans localStorage
+  let deletedIds=[];
+  try{deletedIds=JSON.parse(localStorage.getItem("bl_deleted")||"[]");}catch(e){}
+  if(!deletedIds.includes(editAthId))deletedIds.push(editAthId);
+  localStorage.setItem("bl_deleted",JSON.stringify(deletedIds));
+  // Envoie deleted=1 au sheet
+  if(a) gsPost("upsert","athletes",[{...flattenObj(a), deleted:"1"}]).catch(()=>{});
   ATHLETES=ATHLETES.filter(x=>x.id!==editAthId);
   save();closeAthleteModal();renderAthletes();
 }
