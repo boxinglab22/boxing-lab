@@ -11,6 +11,77 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 :root{--r:6px;}
 html,body{height:100%;overflow:hidden;background:#000;color:#fff;font-family:'Arial Narrow',Arial,sans-serif;font-size:16px;}
+
+/* ── TABLET / TV ─────────────────────────────────────────── */
+@media(min-width:768px){
+  .card{margin:0 20px 12px;}
+  .sec-hdr{padding:16px 20px 8px;font-size:10px;}
+  .topbar{padding:14px 24px;min-height:60px;}
+  .scroll{padding-left:4px;padding-right:4px;}
+  #home-scroll{display:grid;grid-template-columns:1fr 1fr;gap:0 10px;padding:10px 10px 80px;}
+  #home-scroll .sec-hdr{grid-column:1/-1;}
+  .ath-card{margin:0 20px 10px;}
+  .bottom-nav{height:64px;}
+  .nav-tab{font-size:11px;gap:4px;}
+  .nav-tab svg{width:18px;height:18px;}
+}
+
+@media(min-width:1024px){
+  html,body{font-size:18px;}
+  
+  /* Timer screen - big display layout */
+  #s-timer{display:grid;grid-template-rows:auto auto 1fr auto auto;}
+  
+  .timer-top{padding:14px 32px;}
+  .ath-big{font-size:36px;}
+  .prog-tiny{font-size:12px;}
+  .t-clock{font-size:72px;}
+  .t-remain{font-size:28px;}
+  .t-rlbl{font-size:11px;}
+  .quit-btn{font-size:12px;padding:5px 14px;}
+  
+  .block-banner{padding:16px 32px;}
+  .bb-num{font-size:12px;}
+  .bb-name{font-size:42px;letter-spacing:.01em;}
+  .bb-sub{font-size:15px;margin-top:5px;}
+  .bb-cd{font-size:72px;}
+  .bb-cdl{font-size:11px;}
+  
+  /* Timer content - 2 columns */
+  #timer-scroll{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr;overflow-y:auto;}
+  #active-detail{grid-column:1;grid-row:1;padding:16px 16px 8px 32px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  #block-list{grid-column:2;grid-row:1/3;padding:12px 32px 20px 12px;overflow-y:auto;}
+  
+  .d-box{padding:14px 16px;}
+  .d-lbl{font-size:10px;}
+  .d-txt{font-size:15px;}
+  .coach-box{padding:14px 16px;}
+  .coach-txt{font-size:14px;}
+  
+  .bli{padding:12px 14px;margin-bottom:7px;}
+  .bli-name{font-size:16px;}
+  .bli-dur{font-size:20px;}
+  
+  .ctrl-row{padding:12px 32px;gap:12px;}
+  .ctrl-nav{padding:14px 18px;font-size:13px;}
+  .ctrl-main{padding:16px;font-size:16px;}
+  .ctrl-reset{width:52px;height:52px;}
+  
+  /* Home - 3 columns on big screen */
+  #home-scroll{grid-template-columns:1fr 1fr 1fr;}
+  
+  /* Done overlay */
+  .done-title{font-size:72px;}
+  .done-name{font-size:42px;}
+}
+
+@media(min-width:1400px){
+  html,body{font-size:20px;}
+  .t-clock{font-size:96px;}
+  .bb-name{font-size:56px;}
+  .bb-cd{font-size:96px;}
+  .ath-big{font-size:44px;}
+}
 .screen{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;overflow:hidden;transition:transform .28s ease,opacity .28s;}
 .screen.hidden{transform:translateX(100%);opacity:0;pointer-events:none;}
 .scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}
