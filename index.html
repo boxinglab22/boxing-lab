@@ -718,10 +718,11 @@ function progCard(p, isPersonal){
 }
 
 // ══════════════════════════════════════════════════════════════════
-// GOOGLE SHEETS SYNC
+// GOOGLE SHEETS SYNC — via Apps Script
 // ══════════════════════════════════════════════════════════════════
-const GS_URL_DEFAULT = "https://sheetdb.io/api/v1/mlnit60z5zcah";
+const GS_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzSbvBknoaaQ_O6B2pqiwxudhDj1xMHaEsHogdScX0xR8cak7z51x4R6ug8fUQFazRn/exec";
 let GS_URL = localStorage.getItem("bl_gs_url") || GS_URL_DEFAULT;
+if(!GS_URL) GS_URL = GS_URL_DEFAULT;
 
 function openSyncSettings(){
   document.getElementById("sync-url-input").value=GS_URL||"";
@@ -745,7 +746,26 @@ function saveSyncUrl(){
     if(el) el.textContent="Dernière synchro : "+(localStorage.getItem("bl_last_sync")||"maintenant");
   }).catch((e)=>{
     status.textContent="⚠ Erreur : "+e.message; status.style.color="#E82B2B";
-    console.error("Sync error:",e);
+  });
+}
+
+// Appel GET vers Apps Script
+async function gsGet(sheet){
+  if(!GS_URL) return [];
+  try {
+    const r = await fetch(GS_URL+"?action=get&sheet="+sheet);
+    const d = await r.json();
+    return (d.ok && Array.isArray(d.data)) ? d.data : [];
+  } catch(e){ return []; }
+}
+
+// Appel POST vers Apps Script
+async function gsPost(action, sheet, data){
+  if(!GS_URL) return;
+  await fetch(GS_URL, {
+    method:"POST",
+    headers:{"Content-Type":"text/plain"}, // text/plain évite le preflight CORS
+    body: JSON.stringify({action, sheet, data})
   });
 }
 
@@ -753,105 +773,78 @@ async function syncNow(){
   if(!GS_URL) return;
   const badge = document.getElementById("sync-badge");
   if(badge){badge.textContent="⏳"; badge.style.color="#C8972A";}
-
   try {
-    // ── 1. PUSH : écrase les 3 onglets avec les données locales ────
-    await pushSheet("athletes",  ATHLETES);
-    await pushSheet("sessions",  SESSIONS);
-    await pushSheet("programs_custom", PROGRAMS.filter(p=>p.ownerId));
+    // PUSH : envoie tout en local vers le Sheet
+    await gsPost("upsert", "athletes", ATHLETES.map(flattenObj));
+    await gsPost("upsert", "sessions", SESSIONS.map(flattenObj));
+    await gsPost("upsert", "programs_custom", PROGRAMS.filter(p=>p.ownerId).map(flattenObj));
 
-    // ── 2. PULL : récupère les données distantes ───────────────────
+    // PULL : récupère ce qui est dans le Sheet
     const [remoteAthletes, remoteSessions, remoteProgs] = await Promise.all([
-      pullSheet("athletes"),
-      pullSheet("sessions"),
-      pullSheet("programs_custom")
+      gsGet("athletes"),
+      gsGet("sessions"),
+      gsGet("programs_custom")
     ]);
 
-    // ── 3. MERGE : ajoute ce qui manque en local ───────────────────
     let changed = false;
     remoteAthletes.forEach(ra=>{
-      if(ra.id && !ATHLETES.find(a=>a.id===ra.id)){ATHLETES.push(ra);changed=true;}
+      if(!ra.id) return;
+      const idx=ATHLETES.findIndex(a=>a.id===ra.id);
+      if(idx>=0){ ATHLETES[idx]={...ATHLETES[idx],...ra}; changed=true; }
+      else { ATHLETES.push(ra); changed=true; }
     });
     remoteSessions.forEach(rs=>{
-      if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){SESSIONS.push(rs);changed=true;}
+      if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){ SESSIONS.push(rs); changed=true; }
     });
     remoteProgs.forEach(rp=>{
-      if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){PROGRAMS.push(rp);changed=true;}
+      if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){ PROGRAMS.push(rp); changed=true; }
     });
-    if(changed){ save(); renderProgs(); }
+    if(changed){ save(); renderProgs(); renderAthletes(); }
 
     const now = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
     localStorage.setItem("bl_last_sync", now);
     if(badge){badge.textContent="✓ "+now; badge.style.color="#3A8C5C";}
-
   } catch(err) {
     console.error("Sync error:", err);
-    if(badge){badge.textContent="⚠ "+err.message; badge.style.color="#E82B2B";}
+    if(badge){badge.textContent="⚠"; badge.style.color="#E82B2B";}
     throw err;
   }
 }
 
-async function pushSheet(sheetName, data){
-  if(!data || data.length === 0) return;
-  const flat = data.map(flattenObj);
-  // Pour chaque item : tente un PATCH (update) sinon POST (create)
-  for(const item of flat){
-    if(!item.id) continue;
-    try {
-      // Essaie de mettre à jour si existe déjà
-      const upd = await fetch(GS_URL+"/id/"+item.id+"?sheet="+sheetName, {
-        method:"PATCH",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({data: item})
-      });
-      const updData = await upd.json();
-      // Si pas trouvé (updated:0), crée
-      if(!updData || updData.updated === 0 || updData.error){
-        await fetch(GS_URL+"?sheet="+sheetName, {
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({data: [item]})
-        });
-      }
-    } catch(e){
-      // Fallback: juste POST
-      try {
-        await fetch(GS_URL+"?sheet="+sheetName, {
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({data: [item]})
-        });
-      } catch(e2){}
-    }
-  }
+async function pushSheet(sheet, data){
+  if(!GS_URL || !data || !data.length) return;
+  await gsPost("upsert", sheet, data.map(flattenObj));
 }
 
-async function pullSheet(sheetName){
+async function pullSheet(sheet){
+  return await gsGet(sheet);
+}
+
+async function loadFromCloud(){
+  if(!GS_URL) return false;
   try {
-    const r = await fetch(GS_URL+"?sheet="+sheetName);
-    if(!r.ok) return [];
-    const rows = await r.json();
-    return Array.isArray(rows) ? rows : [];
-  } catch(e){ return []; }
+    const [remoteAthletes, remoteSessions, remoteProgs] = await Promise.all([
+      gsGet("athletes"),
+      gsGet("sessions"),
+      gsGet("programs_custom")
+    ]);
+    let changed = false;
+    remoteAthletes.forEach(ra=>{
+      if(!ra.id) return;
+      const idx=ATHLETES.findIndex(a=>a.id===ra.id);
+      if(idx>=0){ ATHLETES[idx]={...ATHLETES[idx],...ra}; changed=true; }
+      else { ATHLETES.push(ra); changed=true; }
+    });
+    remoteSessions.forEach(rs=>{
+      if(rs.id && !SESSIONS.find(s=>s.id===rs.id)){ SESSIONS.push(rs); changed=true; }
+    });
+    remoteProgs.forEach(rp=>{
+      if(rp.id && !PROGRAMS.find(p=>p.id===rp.id)){ PROGRAMS.push(rp); changed=true; }
+    });
+    if(changed) save();
+    return true;
+  } catch(e){ return false; }
 }
-
-function flattenObj(obj){
-  const flat = {};
-  Object.keys(obj).forEach(k=>{
-    const v = obj[k];
-    if(k === 'blocksDetail'){
-      // Résumé compact des blocs pour le Sheet
-      try {
-        const blocks = JSON.parse(v);
-        flat[k] = blocks.map(b => b.num+":"+b.label+(b.completed?"✓":"✗")+"("+b.dur+"min)").join(" | ");
-      } catch(e){ flat[k] = v||""; }
-    } else {
-      flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : (v ?? "");
-    }
-  });
-  return flat;
-}
-
 
 
 function deleteProg(id){
@@ -1146,8 +1139,21 @@ function finishSession(noSave){
       blocksDetail:JSON.stringify(blocksDetail)
     });
     save();
-    // Sync sessions immediately
-    if(GS_URL) pushSheet("sessions", SESSIONS).catch(()=>{});
+    // Sauvegarde automatique immédiate après chaque séance
+    if(GS_URL){
+      const badge=document.getElementById("sync-badge");
+      if(badge){badge.textContent="⏳";badge.style.color="#C8972A";}
+      Promise.all([
+        gsPost("upsert","sessions",[flattenObj(SESSIONS[SESSIONS.length-1])]),
+        gsPost("upsert","athletes",ATHLETES.map(flattenObj))
+      ]).then(()=>{
+        const now=new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+        localStorage.setItem("bl_last_sync",now);
+        if(badge){badge.textContent="✓ "+now;badge.style.color="#3A8C5C";}
+      }).catch(()=>{
+        if(badge){badge.textContent="⚠";badge.style.color="#E82B2B";}
+      });
+    }
   }
   document.getElementById("done-overlay").classList.remove("show");
   running=false; clearInterval(timerRef);
@@ -1225,8 +1231,8 @@ function saveAthlete(){
   else ATHLETES.push({id:"a_"+Date.now(),createdAt:new Date().toISOString(),...data});
   save(); closeAthleteModal();
   renderAthletes(); renderPickAthList();
-  // Sync athletes immediately
-  if(GS_URL) pushSheet("athletes", ATHLETES).catch(()=>{});
+  // Sauvegarde automatique athlète
+  if(GS_URL) gsPost("upsert","athletes",ATHLETES.map(flattenObj)).catch(()=>{});
 }
 
 // ── PROFILE ───────────────────────────────────────────────────────
